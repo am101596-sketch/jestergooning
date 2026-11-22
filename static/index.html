@@ -17,6 +17,7 @@
       <a href="#coordinate" data-nav="coordinate"><span aria-hidden="true">◇</span> Coordination studio</a>
       <a href="#research" data-nav="research"><span aria-hidden="true">▦</span> Research atlas</a>
       <a href="#learning" data-nav="learning"><span aria-hidden="true">↻</span> Learning lab</a>
+      <a href="#simulation" data-nav="simulation"><span aria-hidden="true">◈</span> Simulator & model</a>
       <a href="#sources" data-nav="sources"><span aria-hidden="true">▤</span> Sources & boundaries</a>
     </nav>
     <div class="sidebar-bottom"><div class="mode-label">SIMULATION WORKSPACE</div><p>Real research.<br>Clearly marked demo arrangements.</p><span class="local-label">Runs on your device</span></div>
@@ -50,8 +51,26 @@
       </section>
       <section id="learning" class="screen" hidden>
         <div class="eyebrow">OBSERVE · PROPOSE · TEST · ADOPT</div><h1>Improve the next step<span>.</span></h1><p class="intro">A bounded learning loop changes scheduling policy only after an observed failure and a passing stress test.</p>
-        <div class="learning-layout"><article class="panel"><div class="panel-title"><div><span class="eyebrow">CURRENT POLICY</span><h2>Arrive with room to spare</h2></div><span id="policy-version" class="badge purple">Version 1</span></div><div class="policy-number"><strong id="policy-buffer">0</strong><span>minutes of required arrival buffer</span></div><p id="learning-evidence" class="muted"></p><button id="learn-button" class="button primary">Evaluate a policy improvement</button><p class="small muted">Requires a transport-delay outcome on a confirmed demo plan.</p></article><article class="learning-callout"><span class="eyebrow">THE ADOPTION RULE</span><h3>Fewer late arrivals.<br>No loss of on-time completions.</h3><p>Five fixed synthetic scenarios compare the current policy with a candidate. Safe declines are reported separately. The agent cannot change the tests or provider rules.</p></article></div>
+        <div class="learning-layout"><article class="panel"><div class="panel-title"><div><span class="eyebrow">CURRENT POLICY</span><h2>Arrive with room to spare</h2></div><span id="policy-version" class="badge purple">Version 1</span></div><div class="policy-number"><strong id="policy-buffer">0</strong><span>minutes of required arrival buffer</span></div><p id="learning-evidence" class="muted"></p><button id="learn-button" class="button primary">Evaluate a policy improvement</button><p class="small muted">Requires a transport-delay outcome on a confirmed demo plan.</p></article><article class="learning-callout"><span class="eyebrow">THE ADOPTION RULE</span><h3>Fewer late arrivals.<br>No loss of on-time completions.</h3><p>A candidate must pass five fixed stress scenarios and a broader 500-household paired simulation. Declines are reported separately. The agent cannot change these tests or provider rules.</p></article></div>
         <article id="learning-results" class="panel" hidden></article><article class="panel events-panel"><div class="panel-title"><h2>Audit trail</h2><button class="button secondary" id="refresh-events">Refresh</button></div><div id="event-list"></div></article>
+      </section>
+      <section id="simulation" class="screen" hidden>
+        <div class="eyebrow">A LOCAL LAB FOR WHAT-IF QUESTIONS</div><h1>Test the world.<br><span>Train a local model.</span></h1><p class="intro">Compare policies on the same synthetic households and disruptions. Train an inspectable predictive model entirely on your machine.</p>
+        <article class="panel"><div class="panel-title"><div><span class="eyebrow">PAIRED MONTE CARLO SIMULATION</span><h2>Choose the operating conditions</h2></div><span class="badge purple">Synthetic scenarios</span></div>
+          <form id="simulation-form"><div class="sim-controls">
+            <label>Households<input name="cases" type="number" min="10" max="5000" value="500" required></label>
+            <label>Random seed<input name="seed" type="number" min="0" max="2147483647" value="42" required></label>
+            <label>Delay probability (%)<input name="delay_probability" type="number" min="0" max="100" step="1" value="35" required></label>
+            <label>Mean delay when delayed (min)<input name="mean_delay_minutes" type="number" min="1" max="60" value="15" required></label>
+            <label>Provider withdrawal (%)<input name="withdrawal_probability" type="number" min="0" max="100" value="10" required></label>
+            <label>Bridge funding failure (%)<input name="funding_failure_probability" type="number" min="0" max="100" value="5" required></label>
+            <label>Baseline arrival buffer (min)<input name="baseline_buffer" type="number" min="0" max="60" value="0" required></label>
+            <label>Candidate arrival buffer (min)<input name="candidate_buffer" type="number" min="0" max="60" value="15" required></label>
+          </div><div class="form-footer"><span>Reusing a seed reproduces the same world. No active policy is changed.</span><button id="simulation-button" class="button primary" type="submit">Run paired simulation</button></div></form>
+        </article>
+        <article id="simulation-results" class="panel" hidden aria-live="polite"></article>
+        <div class="learning-layout"><article class="panel"><div class="panel-title"><div><span class="eyebrow">TRAINED ON THIS DEVICE</span><h2>Readiness probability model</h2></div><span class="badge">Logistic regression</span></div><div id="model-summary"><p class="muted">Loading the bundled model…</p></div><div class="actions"><button id="train-model-button" class="button primary">Retrain locally: 4,000 + 1,000 cases</button><button id="score-model-button" class="button secondary">Score studio applicant</button></div><div id="model-prediction" aria-live="polite"></div><p class="small muted">Retraining replaces the local model artifact. No cloud calls or extra packages. The case is scored using the current studio policy and the risk settings above.</p></article><article class="learning-callout"><span class="eyebrow">WHAT THE PROBABILITY MEANS</span><h3>A prediction inside a synthetic world.</h3><p>The target is an on-time first attempt, conditional on a feasible plan and your risk assumptions. Training excludes declined plans. Different random seeds separate training and test cases, but both use the same generator.</p><p>The model does not use Census records as outcome labels. It does not determine eligibility, book services, or certify a real job start.</p><p>Simulator assumptions: fixed offers, no competition for capacity, independent withdrawals and funding failures, and exponential transport delays. Changing the model of the world may change the results.</p></article></div>
+        <article id="model-calibration" class="panel" hidden></article>
       </section>
       <section id="sources" class="screen" hidden>
         <div class="eyebrow">KNOW WHAT YOU’RE LOOKING AT</div><h1>Evidence, with boundaries<span>.</span></h1><p class="intro">FirstStep pairs a real research database with an explicitly simulated coordination workflow.</p>

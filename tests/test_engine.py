@@ -75,15 +75,18 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(replacement['parent_id'],p['id'])
         with self.assertRaises(ValueError):self.store.outcome(p['id'],'on_time')
 
-    def test_policy_survives_restart_and_changes_new_plans(self):
+    def test_broader_gate_rejects_a_rule_that_reduces_access(self):
         p=self.store.prepare(DEFAULT_CASE)
         with self.assertRaises(ValueError):self.store.outcome(p['id'],'transport_delay')
         self.store.confirm(p['id'],True)
         self.store.outcome(p['id'],'transport_delay')
-        self.assertTrue(self.store.learning(run=True)['result']['promoted'])
+        result=self.store.learning(run=True)['result']
+        self.assertTrue(result['small_suite_passed'])
+        self.assertFalse(result['promoted'])
+        self.assertLess(result['broader_check']['candidate']['on_time'],result['broader_check']['baseline']['on_time'])
         restart=Store(self.store.path)
-        self.assertEqual(restart.policy()['arrival_buffer_minutes'],15)
-        self.assertEqual(restart.prepare(DEFAULT_CASE)['selected']['ride']['id'],'flex')
+        self.assertEqual(restart.policy()['arrival_buffer_minutes'],0)
+        self.assertEqual(restart.prepare(DEFAULT_CASE)['selected']['ride']['id'],'express')
 
 
 class ResearchTests(unittest.TestCase):

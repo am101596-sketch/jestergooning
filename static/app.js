@@ -23,12 +23,13 @@ async function busy(button, task) {
   finally { button.disabled=false; }
 }
 function navigate() {
-  const key=['coordinate','research','learning','sources'].includes(location.hash.slice(1))?location.hash.slice(1):'coordinate';
+  const key=['coordinate','research','learning','simulation','sources'].includes(location.hash.slice(1))?location.hash.slice(1):'coordinate';
   document.querySelectorAll('.screen').forEach(s=>s.hidden=s.id!==key);
   document.querySelectorAll('[data-nav]').forEach(a=>{a.classList.toggle('active',a.dataset.nav===key);if(a.dataset.nav===key)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');});
-  $('page-label').textContent={coordinate:'Coordination studio',research:'Research atlas',learning:'Learning lab',sources:'Sources & boundaries'}[key];
+  $('page-label').textContent={coordinate:'Coordination studio',research:'Research atlas',learning:'Learning lab',simulation:'Simulator & local model',sources:'Sources & boundaries'}[key];
   if(key==='research') searchResearch().catch(e=>notify(e.message,true));
   if(key==='learning') refreshLearning().catch(e=>notify(e.message,true));
+  if(key==='simulation') refreshModel().catch(e=>notify(e.message,true));
 }
 function renderPlan(plan) {
   currentPlan=plan;
@@ -77,7 +78,7 @@ async function searchResearch(){
 function renderEvaluation(result){
   $('learning-results').hidden=false;
   const column=(name,r)=>`<div class="eval-column"><h3>${name}</h3>${[['On time','on_time',''],['Late','late','late'],['Declined','declined','declined']].map(([label,key,cls])=>`<div class="eval-row"><span>${label}</span><progress class="${cls}" value="${r[key]}" max="5" aria-label="${name}: ${label}"></progress><strong>${r[key]}</strong></div>`).join('')}</div>`;
-  $('learning-results').innerHTML=`<div class="panel-title"><h2>${result.promoted?'Candidate adopted':'Current policy retained'}</h2><span class="badge ${result.promoted?'green':'orange'}">Fixed stress suite</span></div><p class="muted">${esc(result.reason)}</p><div class="eval-grid">${column('Current policy',result.baseline)}${column('Candidate policy',result.candidate)}</div><p class="small muted">${esc(result.scope)}</p><details><summary>Inspect all five scenario outcomes</summary><table><thead><tr><th>Scenario</th><th>Current policy</th><th>Candidate</th></tr></thead><tbody>${result.baseline.results.map((r,i)=>`<tr><td>${esc(r.id)}</td><td>${esc(r.outcome)}</td><td>${esc(result.candidate.results[i].outcome)}</td></tr>`).join('')}</tbody></table></details>`;
+  $('learning-results').innerHTML=`<div class="panel-title"><h2>${result.promoted?'Candidate adopted':'Current policy retained'}</h2><span class="badge ${result.promoted?'green':'orange'}">Policy checks</span></div><p class="muted">${esc(result.reason)}</p><div class="eval-grid">${column('Small suite: current',result.baseline)}${column('Small suite: candidate',result.candidate)}</div>${result.broader_check?`<div class="inset-note"><strong>Broader paired check · ${result.broader_check.config.cases} households</strong><p>On-time starts: ${result.broader_check.baseline.on_time} current / ${result.broader_check.candidate.on_time} candidate. Declines: ${result.broader_check.baseline.declined} current / ${result.broader_check.candidate.declined} candidate.</p></div>`:''}<p class="small muted">${esc(result.scope)}</p><details><summary>Inspect all five scenario outcomes</summary><table><thead><tr><th>Scenario</th><th>Current policy</th><th>Candidate</th></tr></thead><tbody>${result.baseline.results.map((r,i)=>`<tr><td>${esc(r.id)}</td><td>${esc(r.outcome)}</td><td>${esc(result.candidate.results[i].outcome)}</td></tr>`).join('')}</tbody></table></details>`;
 }
 async function refreshEvents(){
   const events=await api('/api/events');
@@ -105,6 +106,46 @@ $('research-search').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preven
 $('research-kind').onchange=()=>busy($('research-button'),searchResearch);
 $('learn-button').onclick=()=>busy($('learn-button'),async()=>{const data=await api('/api/learning/run',{});await refreshLearning();renderEvaluation(data.result);notify(data.result.reason);});
 $('refresh-events').onclick=()=>busy($('refresh-events'),refreshEvents);
+const percent=v=>(v*100).toFixed(1)+'%';
+function simulationConfig(){
+  const data=Object.fromEntries(new FormData($('simulation-form')));
+  for(const k of Object.keys(data))data[k]=Number(data[k]);
+  for(const k of ['delay_probability','withdrawal_probability','funding_failure_probability'])data[k]/=100;
+  return data;
+}
+function studioCase(){
+  const data=Object.fromEntries(new FormData($('case-form')));
+  for(const k of ['child_age','weekly_budget','bridge_budget'])data[k]=Number(data[k]);
+  return data;
+}
+function renderSimulation(r){
+  $('simulation-results').hidden=false;
+  const summary=(name,key)=>`<div class="eval-column"><h3>${name} · ${r.config[key+'_buffer']}-minute buffer</h3><div class="policy-number"><strong>${percent(r[key].on_time_rate)}</strong><span>on-time synthetic starts, including declines in denominator</span></div><p class="muted">${number(r[key].on_time)} of ${number(r.config.cases)} households · ${number(r[key].feasible)} feasible plans</p></div>`;
+  $('simulation-results').innerHTML=`<div class="panel-title"><h2>Two policies. The same synthetic world.</h2><span class="badge purple">Seed ${r.config.seed}</span></div><div class="eval-grid">${summary('Baseline','baseline')}${summary('Candidate','candidate')}</div><p class="muted">Candidate difference: <strong>${r.on_time_rate_difference>=0?'+':''}${(r.on_time_rate_difference*100).toFixed(1)} percentage points</strong>. Approximate 95% Monte Carlo interval: ${(r.paired_95pct_interval[0]*100).toFixed(1)} to ${(r.paired_95pct_interval[1]*100).toFixed(1)} points.</p><p class="small muted">${esc(r.interval_scope)}</p><div class="table-panel"><table><thead><tr><th>Outcome</th><th>Baseline</th><th>Candidate</th></tr></thead><tbody>${[['On-time start','on_time'],['Late arrival','late'],['Provider withdrew','provider_withdrawal'],['Funding failed','funding_failure'],['No feasible plan','declined']].map(([label,key])=>`<tr><td>${label}</td><td>${number(r.baseline[key])}</td><td>${number(r.candidate[key])}</td></tr>`).join('')}<tr><td>Mean weekly cost of feasible plans</td><td>${r.baseline.mean_feasible_weekly_cost===null?'Unavailable':money(r.baseline.mean_feasible_weekly_cost)}</td><td>${r.candidate.mean_feasible_weekly_cost===null?'Unavailable':money(r.candidate.mean_feasible_weekly_cost)}</td></tr></tbody></table></div><p class="small muted">Paired outcomes: ${r.paired.improved} improved to on time, ${r.paired.worsened} lost an on-time result, ${r.paired.unchanged} unchanged in on-time status. Costs are planned costs, not measured spending.</p><details><summary>Inspect the first ${r.samples.length} paired cases</summary><div class="table-panel"><table><thead><tr><th>Household</th><th>Baseline</th><th>Candidate</th><th>Predicted on-time probability</th></tr></thead><tbody>${r.samples.map(s=>`<tr><td>${esc(s.case.name)}<span class="table-secondary">${money(s.case.weekly_budget)}/week · ${esc(s.case.shift_start)} start · delay ${s.delay_minutes} min</span></td><td>${esc(s.baseline.outcome)}</td><td>${esc(s.candidate.outcome)}</td><td>${s.baseline.prediction===null?'Unscored':percent(s.baseline.prediction)} / ${s.candidate.prediction===null?'Unscored':percent(s.candidate.prediction)}<span class="table-secondary">Baseline / candidate · synthetic estimates</span></td></tr>`).join('')}</tbody></table></div></details><details><summary>Inspect simulator assumptions</summary><ul>${r.assumptions.map(s=>`<li>${esc(s)}</li>`).join('')}</ul></details>`;
+}
+function renderModel(m){
+  const e=m.evaluation,b=m.baseline_evaluation;
+  $('model-summary').innerHTML=`<p class="muted">${number(m.training.train_rows)} training plans · ${number(m.training.test_rows)} separate test plans. Both sets are synthetic feasible plans.</p><div class="model-stats"><div><strong>${e.brier.toFixed(3)}</strong><span>Test Brier loss</span></div><div><strong>${b.brier.toFixed(3)}</strong><span>Constant baseline loss</span></div><div><strong>${e.auroc===null?'N/A':e.auroc.toFixed(3)}</strong><span>Test AUROC</span></div></div><p class="small muted">Lower Brier loss is better. AUROC measures ranking. Test accuracy: ${percent(e.accuracy)}; constant-baseline accuracy: ${percent(b.accuracy)}. Trained ${esc(new Date(m.trained_at).toLocaleString())}.</p>`;
+  $('model-calibration').hidden=false;
+  $('model-calibration').innerHTML=`<div class="panel-title"><h2>Held-out calibration</h2><span class="badge">Same generator · different seed</span></div><p class="muted">Predicted probabilities compared with observed synthetic outcomes in each populated bin. Small bins are noisy.</p><div class="table-panel"><table><thead><tr><th>Prediction range</th><th>Test cases</th><th>Mean prediction</th><th>Observed on-time rate</th></tr></thead><tbody>${e.calibration.map(c=>`<tr><td>${percent(c.lower)}–${percent(c.upper)}</td><td>${number(c.count)}</td><td>${percent(c.predicted)}</td><td>${percent(c.observed)}</td></tr>`).join('')}</tbody></table></div><details><summary>Inspect learned weights and training procedure</summary><p>Batch gradient descent · ${m.training.epochs} epochs · L2 ${m.training.l2}. Normalization statistics are fit only on training data. Train seed ${m.training.train_seed}; test seed ${m.training.test_seed}.</p><table><thead><tr><th>Feature</th><th>Standardized coefficient</th></tr></thead><tbody>${m.feature_names.map((f,i)=>`<tr><td>${esc(f)}</td><td>${m.weights[i].toFixed(4)}</td></tr>`).join('')}</tbody></table><p>Intercept: ${m.intercept.toFixed(4)}. Coefficients describe this generator, not causal effects in real families.</p></details>`;
+}
+async function refreshModel(){
+  renderModel((await api('/api/model')).model);
+  const sim=await api('/api/simulator');
+  if(sim.latest)renderSimulation(sim.latest);
+}
+$('simulation-form').addEventListener('submit',e=>{
+  e.preventDefault();busy($('simulation-button'),async()=>{renderSimulation(await api('/api/simulator/run',simulationConfig()));notify('Paired synthetic simulation completed. The active planning policy was not changed.');});
+});
+$('train-model-button').onclick=()=>busy($('train-model-button'),async()=>{
+  const button=$('train-model-button'),original=button.textContent;button.textContent='Training locally…';
+  try {renderModel((await api('/api/model/train',{train_count:4000,test_count:1000,seed:20261122})).model);notify('Local model trained and saved. Metrics use a separate synthetic test set.');}
+  finally {button.textContent=original;}
+});
+$('score-model-button').onclick=()=>busy($('score-model-button'),async()=>{
+  const r=await api('/api/model/predict',{case:studioCase(),context:simulationConfig()});
+  $('model-prediction').innerHTML=`<div class="inset-note"><strong>${r.prediction.probability===null?'Not scored':percent(r.prediction.probability)+' synthetic on-time probability'}</strong><p>${esc(r.prediction.reason)}</p></div>`;
+});
 window.addEventListener('hashchange',navigate);
 api('/api/bootstrap').then(data=>{
   $('geo-count').textContent=number(data.stats.geographies);

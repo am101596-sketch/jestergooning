@@ -1,6 +1,6 @@
 [project]
 name = "firststep-coordination"
-version = "0.1.0"
+version = "0.2.0"
 description = "A bounded coordination and policy-learning prototype for parents starting work"
 requires-python = ">=3.11"
 dependencies = []

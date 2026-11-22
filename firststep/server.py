@@ -15,6 +15,8 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from .engine import CARES, RIDES, DEFAULT_CASE, solve, assess_policy
+from .simulator import simulate, DEFAULT_CONFIG
+from .predictive import load_model, train, save_model, predict, TRAINING_LOCK
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = ROOT / 'static'
@@ -124,6 +126,16 @@ class Store:
                     latest=db.execute("SELECT payload FROM events WHERE kind='policy_evaluated' ORDER BY id DESC LIMIT 1").fetchone()
                     return dict(policy=policy, observed_delays=delays, latest=json.loads(latest[0]) if latest else None)
                 result=assess_policy(policy,delays)
+                result['small_suite_passed']=result['promoted']
+                if result['promoted']:
+                    broader=simulate(dict(cases=500,seed=314159,baseline_buffer=policy['arrival_buffer_minutes'],
+                                          candidate_buffer=result['proposed_policy']['arrival_buffer_minutes']))
+                    result['broader_check']={k:broader[k] for k in ['config','baseline','candidate','paired','on_time_rate_difference']}
+                    result['promoted']=(broader['candidate']['on_time']>=broader['baseline']['on_time']
+                                        and broader['candidate']['late']<=broader['baseline']['late'])
+                    result['reason']=('Passed both the fixed stress suite and the broader paired simulation.' if result['promoted']
+                                      else 'The small suite passed, but the broader simulation showed fewer on-time starts or more late arrivals. Current policy retained.')
+                    result['scope']='Five fixed stress cases plus 500 paired synthetic households. Neither establishes real-world impact.'
                 if result['promoted']:
                     db.execute("UPDATE settings SET payload=? WHERE key='policy'",(json.dumps(result['proposed_policy']),))
                 self.event(db,'policy_evaluated',None,result)
@@ -133,6 +145,16 @@ class Store:
         with self.connect() as db:
             return [dict(id=r[0],at=r[1],kind=r[2],plan_id=r[3],payload=json.loads(r[4])) for r in
                     db.execute('SELECT id,at,kind,plan_id,payload FROM events ORDER BY id DESC LIMIT 50')]
+
+    def setting(self,key):
+        with self.connect() as db:
+            row=db.execute('SELECT payload FROM settings WHERE key=?',(key,)).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def record_setting(self,key,payload,kind):
+        with self.connect() as db:
+            db.execute('INSERT OR REPLACE INTO settings VALUES (?,?)',(key,json.dumps(payload)))
+            self.event(db,kind,None,dict(synthetic=True))
 
 
 class Research:
@@ -188,6 +210,7 @@ class Research:
 
 
 def make_handler(store,research):
+    model_path=store.path.parent/'model.json'
     class Handler(BaseHTTPRequestHandler):
         def log_message(self,fmt,*args):
             # Do not log query strings or applicant payloads.
@@ -221,6 +244,10 @@ def make_handler(store,research):
                     return self.send(200,store.learning())
                 if u.path=='/api/events':
                     return self.send(200,store.events())
+                if u.path=='/api/model':
+                    return self.send(200,dict(model=load_model(model_path),local=True))
+                if u.path=='/api/simulator':
+                    return self.send(200,dict(defaults=DEFAULT_CONFIG,latest=store.setting('simulation')))
                 if u.path.startswith('/api/plans/'):
                     return self.send(200,store.get(u.path.split('/')[-1]))
                 assets={'/':'index.html','/app.js':'app.js','/style.css':'style.css','/favicon.svg':'favicon.svg'}
@@ -253,6 +280,32 @@ def make_handler(store,research):
                     return self.send(201,store.prepare(body))
                 if path=='/api/learning/run':
                     return self.send(200,store.learning(run=True))
+                if path=='/api/simulator/run':
+                    result=simulate(body)
+                    model=load_model(model_path)
+                    for sample in result['samples']:
+                        for name in ['baseline','candidate']:
+                            plan=solve(sample['case'],dict(version=1,arrival_buffer_minutes=result['config'][name+'_buffer']))
+                            sample[name]['prediction']=predict(plan,result['config'],model)['probability']
+                    store.record_setting('simulation',result,'batch_simulated')
+                    return self.send(200,result)
+                if path=='/api/model/train':
+                    if set(body)-{'train_count','test_count','seed'}:
+                        raise ValueError('Unknown training setting.')
+                    if not TRAINING_LOCK.acquire(blocking=False):
+                        return self.send(409,dict(error='Another local training run is already in progress.'))
+                    try:
+                        model=train(body.get('train_count',4000),body.get('test_count',1000),body.get('seed',20261122))
+                        save_model(model,model_path)
+                        store.record_setting('model_training',dict(training=model['training'],evaluation=model['evaluation']),'model_trained')
+                    finally:
+                        TRAINING_LOCK.release()
+                    return self.send(200,dict(model=model,local=True))
+                if path=='/api/model/predict':
+                    if set(body)-{'case','context'}:
+                        raise ValueError('Unknown prediction setting.')
+                    plan=solve(body.get('case',DEFAULT_CASE),store.policy())
+                    return self.send(200,dict(prediction=predict(plan,body.get('context'),load_model(model_path)),plan=plan))
                 parts=path.strip('/').split('/')
                 if len(parts)==4 and parts[:2]==['api','plans']:
                     if parts[3]=='confirm':

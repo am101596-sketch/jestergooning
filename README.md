@@ -2,7 +2,7 @@
 
 **Coordinate childcare, transport, and bridge funding so a first day at work can happen.**
 
-FirstStep is a runnable hackathon prototype with a constrained planning engine, a public-data explorer, and a tested policy-improvement loop. All applicant cases, service offers, confirmations, and outcomes in the coordination studio are **synthetic**. The research explorer uses real public-source records.
+FirstStep is a runnable hackathon prototype with a constrained planning engine, a public-data explorer, a paired Monte Carlo simulator, and a locally trained predictive model. All applicant cases, service offers, confirmations, and outcomes in the coordination studio and simulator are **synthetic**. The research explorer uses real public-source records.
 
 ![FirstStep coordination studio](docs/preview.png)
 
@@ -21,11 +21,11 @@ Open **http://127.0.0.1:8080**. Use `--port 8090` to select another port. Run co
 1. In **Coordination studio**, keep the synthetic applicant's defaults and select **Find a coordinated plan**. The planner checks six childcare/transport combinations and selects the lowest-cost feasible bundle: $260 per week.
 2. Check the simulation-consent box and confirm the demo arrangement.
 3. Record a **15-minute transport delay**. No external service is contacted.
-4. In **Learning lab**, evaluate the proposed scheduling change. A fixed five-scenario suite compares the current policy with a 15-minute arrival buffer. The initial comparison has two late arrivals; the candidate has none and increases on-time completions from one to three. Two scenarios remain declined.
-5. Create another plan. The adopted buffer changes the chosen connection; the new bundle costs $285 per week.
-6. Confirm it and **simulate a provider withdrawal**. The engine excludes the withdrawn offer, checks a replacement, and requires fresh consent. If the budget cannot cover any valid replacement, it reports the blockers.
+4. In **Learning lab**, evaluate the proposed scheduling change. The five-case stress suite favors a 15-minute buffer, but a broader 500-household paired check exposes lost access. The new gate retains the current policy when the candidate reduces total on-time starts or increases late arrivals.
+5. Open **Simulator & model** and compare 0-minute and 15-minute buffers across hundreds of households. Inspect late arrivals, declined plans, costs, paired changes, and the actual trained model's conditional probabilities.
+6. Create and confirm another studio plan, then **simulate a provider withdrawal**. The engine excludes the withdrawn offer, checks a replacement, and requires fresh consent. If no valid replacement fits the budget, it reports the blockers.
 
-These are deterministic synthetic stress results, not measured employment or social-impact outcomes. The learner changes one bounded scheduling parameter; it does not rewrite code, train a model, change provider rules, or modify its evaluation suite.
+These are synthetic results, not measured employment or social-impact outcomes. The scheduling learner proposes one bounded parameter and cannot rewrite provider rules or its tests. Predictive-model training is a separate, explicit local operation. Existing saved demo policies are preserved; the broader gate applies to new proposals.
 
 ## What is implemented
 
@@ -36,6 +36,8 @@ These are deterministic synthetic stress results, not measured employment or soc
 - Observed-delay evidence, candidate-policy evaluation, and gated promotion.
 - Real county statistics and a historical California childcare-center directory.
 - Optional full SQLite research database with tract and block-group search.
+- Reproducible paired simulation with configurable transport delays, provider withdrawals, and funding failures.
+- Locally trained logistic regression, held-out evaluation, calibration bins, inspectable coefficients, and saved weights.
 - Responsive, keyboard-accessible web interface; no external font or script requests.
 
 ## Real data included
@@ -79,11 +81,40 @@ A real pilot needs participating providers with verified rules, availability, re
 Browser: static HTML / CSS / JavaScript
     -> localhost HTTP API (Python standard library)
         -> pure constraint planner and fixed stress evaluator
+        -> seeded Monte Carlo world and local logistic regression
         -> local SQLite demo-state store
         -> read-only research SQLite or bundled CSV fallback
 ```
 
 Demo state persists in `data/state.sqlite`, which Git ignores. The server binds only to loopback, validates loopback Host headers, rejects cross-origin mutations, limits JSON payloads, and applies a restrictive content security policy. It has no production authentication or authorization model. Do not expose it on a public network or enter real applicant information. There are no live booking, payment, benefit-submission, or messaging integrations.
+
+## Simulator and local predictive model
+
+Open **Simulator & model** in the app. Set the number of households (10–5,000), seed, delay probability and mean, provider withdrawal and funding-failure probabilities, and two arrival-buffer policies. Both policies face the **same households and underlying random disturbances**. Outcomes include on-time, late, withdrawal, funding failure, and no feasible plan. Planned costs, paired changes, and an approximate Monte Carlo interval are reported separately. Running a simulation does not promote a policy or change active case records.
+
+You can also run it without the web server:
+
+```sh
+python -m firststep.simulator --cases 1000 --seed 42 --output data/simulation.json
+```
+
+The checked-in `docs/simulation-example.json` records that run. Under its chosen assumptions, the 15-minute buffer reduces late arrivals from 77 to 30, but on-time starts fall from 471 to 371 because declines increase from 354 to 524. This is a synthetic illustration of a coverage/reliability tradeoff, not a claim about real services.
+
+The generator assumes fixed demo offers, no inter-household capacity competition, independent provider/funding failures, exponential transport delays, and no recovery within a run. Those assumptions are controllable modeling choices, not measurements of real services. Provider withdrawal draws are provider-specific and shared across the two policies.
+
+### Train entirely on your machine
+
+```sh
+python -m firststep.predictive --train 4000 --test 1000 --seed 20261122
+```
+
+Or select **Retrain locally** in the app. The pure-Python trainer uses batch gradient descent with L2 regularization. No external packages, downloaded language model, cloud inference, or GPU is needed. It saves the model to ignored `data/model.json`; a fresh clone uses the bundled, actually trained checkpoint at `models/readiness-v1.json`.
+
+Training labels are generated outcomes for feasible synthetic plans. Features are pre-outcome arrival slack and supplied disruption assumptions. Normalization uses training rows only. Training and test cases use disjoint seed-based identifiers; the test set is never used to update weights or choose a threshold. Evaluation remains inside the same generator and is **not external validation**. Declined plans are not scored. Inputs outside the documented training ranges receive no prediction.
+
+The bundled model was trained on **4,000 feasible plans** and tested on **1,000 separately generated plans**. Initial held-out results: **Brier loss 0.2076** versus **0.2275** for a constant training-prevalence baseline; **AUROC 0.6725**; accuracy **68.2%** versus **65.1%** for the constant baseline. These numbers describe the simulator, not real families. The UI displays calibration-bin counts so tiny samples are visible.
+
+**Score studio applicant** estimates an on-time first attempt using the current studio policy and the simulator's risk settings. It does not select beneficiaries, override planner constraints, or claim calibrated real-world probabilities. Predictive retraining is separate from the Learning lab's existing gated scheduling-policy update.
 
 ## Tests
 
