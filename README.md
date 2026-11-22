@@ -16,12 +16,14 @@ python -m firststep.server
 
 Open **http://127.0.0.1:8080**. Use `--port 8090` to select another port. Run commands from the repository root.
 
+Demo state persists between runs. To repeat the demo from a clean start, run `python -m firststep.server --reset-demo`, which clears saved plans, events, simulation reports, and the learned policy. A locally retrained model is kept. For a `firststep` command, install from the checkout with `pip install -e .`.
+
 ## The three-minute demo
 
 1. In **Coordination studio**, keep the synthetic applicant's defaults and select **Find a coordinated plan**. The planner checks six childcare/transport combinations and selects the lowest-cost feasible bundle: $260 per week.
 2. Check the simulation-consent box and confirm the demo arrangement.
 3. Record a **15-minute transport delay**. No external service is contacted.
-4. In **Learning lab**, evaluate the proposed scheduling change. The five-case stress suite favors a 15-minute buffer, but a broader 500-household paired check exposes lost access. The new gate retains the current policy when the candidate reduces total on-time starts or increases late arrivals.
+4. In **Learning lab**, evaluate the proposed scheduling change. The five-case stress suite favors a 15-minute buffer, but a broader 500-household paired check exposes lost access. The gate retains the current policy when the candidate reduces total on-time starts, increases late arrivals, or declines more of the five stress scenarios. When several delays were observed, it tests the largest one that can pass, so one extreme delay cannot block a safe improvement.
 5. Open **Simulator & model** and compare 0-minute and 15-minute buffers across hundreds of households. Inspect late arrivals, declined plans, costs, paired changes, and the actual trained model's conditional probabilities.
 6. Create and confirm another studio plan, then **simulate a provider withdrawal**. The engine excludes the withdrawn offer, checks a replacement, and requires fresh consent. If no valid replacement fits the budget, it reports the blockers.
 
@@ -38,7 +40,8 @@ These are synthetic results, not measured employment or social-impact outcomes. 
 - Optional full SQLite research database with tract and block-group search.
 - Reproducible paired simulation with configurable transport delays, provider withdrawals, and funding failures.
 - Locally trained logistic regression, held-out evaluation, calibration bins, inspectable coefficients, and saved weights.
-- Responsive, keyboard-accessible web interface; no external font or script requests.
+- Responsive, keyboard-accessible web interface with a self-hosted font and no external font or script requests.
+- Research search that ignores extra spaces and accents, so `Anasco` finds Añasco Municipio.
 
 ## Real data included
 
@@ -130,4 +133,6 @@ Tests cover planner constraints, impossible cases, withdrawal recovery, consent 
 - **U.S. Department of Labor Women's Bureau:** [National Database of Childcare Prices](https://www.dol.gov/agencies/wb/topics/featured-childcare), 2008–2022. [Technical report](https://www.dol.gov/sites/dolgov/files/WB/National-Database-of-Childcare-Prices-Technical-Report.pdf) explains units, missingness, and estimation.
 - **California Department of Social Services:** [Community Care Licensing Facilities](https://publish.data.ca.gov/dataset/community-care-licensing-facilities). The catalog identifies Creative Commons Attribution licensing. The bundled center CSV retains original source fields. UI filtering, SQLite conversion, and derived research views are project modifications. No government endorsement is implied.
 
-Application code is MIT licensed. Source datasets retain their own terms and attribution requirements; the application license does not replace them.
+- **Public Sans:** the interface typeface is self-hosted from `@fontsource-variable/public-sans` under the SIL Open Font License. See `static/public-sans-LICENSE.txt`.
+
+Application code is MIT licensed. Source datasets and the font retain their own terms and attribution requirements; the application license does not replace them.

@@ -20,3 +20,14 @@ The model checkpoint was actually trained locally on 4,000 feasible synthetic pl
 Browser checks covered paired simulation, local retraining, probability scoring, refusal outside training ranges, persisted simulation reports, and mobile layout without JavaScript exceptions or document-level horizontal overflow.
 
 The larger generator exposed a failure of the original five-case evaluation: a stricter buffer could lower late arrivals while reducing total on-time starts by declining more households. The Learning lab now adds a fixed 500-household paired check before adopting a proposal. It rejects that broader harm even when the five-case suite passes. The stored 1,000-case example is a demonstration report, separate from the fixed adoption check, and is not a real-world impact study.
+
+## Interface and hardening pass
+
+Each fix below was reproduced first, then checked again in headless Chrome against the full research database.
+
+- The skip link no longer switches pages, and the missing-consent error stays visible where the person is working.
+- A slow search can no longer overwrite a newer one. Missing income shows as "Unavailable" instead of "$Unavailable" (De Baca County, New Mexico).
+- Text below WCAG AA contrast went from 93 elements across four screens to 0 across all five. This automated check covers rendered text in the default state of each screen. No screen-reader testing was done.
+- No document-level horizontal overflow at 320, 390, 768, or 1024 px.
+- The learning gate no longer adopts a buffer that declines more stress scenarios, and one extreme delay no longer blocks a safe buffer.
+- Search treats `%` and `_` literally and ignores extra spaces and accents. Repeat searches of the bundled provider file dropped from about 159 ms to about 1 ms, at a cost of about 21 MB of memory after the first search.
