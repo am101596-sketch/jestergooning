@@ -55,10 +55,10 @@ The full database contains **1,499,965 source rows** across subject tables, incl
 
 ### Install the full database
 
-The 304 MB SQLite database is distributed as a ~75 MB release asset rather than committed to Git history. Authenticate `gh` for this private repository, then:
+The 304 MB SQLite database is distributed as a ~75 MB release asset rather than committed to Git history. Download the public research release with `gh`:
 
 ```sh
-gh release download research-v1 --repo am101596-sketch/firststep --pattern FirstStep_Database.zip --dir data
+gh release download research-v1 --repo am101596-sketch/jestergooning --pattern FirstStep_Database.zip --dir data
 python scripts/install_database.py data/FirstStep_Database.zip
 python -m firststep.server
 ```

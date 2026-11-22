@@ -13,6 +13,6 @@ These are research data, not live vacancies, individual applicant records, curre
 Install from the cloned repository:
 
 ```sh
-gh release download research-v1 --repo am101596-sketch/firststep --pattern FirstStep_Database.zip --dir data
+gh release download research-v1 --repo am101596-sketch/jestergooning --pattern FirstStep_Database.zip --dir data
 python scripts/install_database.py data/FirstStep_Database.zip
 ```
