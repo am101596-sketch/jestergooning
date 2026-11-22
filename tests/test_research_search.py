@@ -40,6 +40,8 @@ class DatabaseSearchTests(unittest.TestCase):
             ('1', 'Añasco Municipio, Puerto Rico', '050'),
             ('2', 'Alameda County, California', '050'),
             ('3', '100% Test County', '050'),
+            ('4', 'Doña Ana County, New Mexico', '050'),
+            ('5', 'McDonald County, Missouri', '050'),
         ])
         db.commit()
         db.close()
@@ -54,6 +56,9 @@ class DatabaseSearchTests(unittest.TestCase):
     def test_like_wildcards_are_literal(self):
         self.assertEqual(self.names('%'), ['100% Test County'])
         self.assertEqual(self.names('_'), [])
+
+    def test_accented_names_appear_beside_plain_matches(self):
+        self.assertEqual(self.names('dona'), ['Doña Ana County, New Mexico', 'McDonald County, Missouri'])
 
     def test_accent_fallback_and_trim(self):
         self.assertEqual(self.names('  anasco '), ['Añasco Municipio, Puerto Rico'])

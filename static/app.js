@@ -157,7 +157,7 @@ async function searchResearch() {
     } else {
       const data = await api('/api/research/areas?q=' + encodeURIComponent(q) + '&level=' + kind);
       if (token !== searchToken) return;
-      $('research-context').textContent = `${data.rows.length} ${data.rows.length === 1 ? 'result' : 'results'} shown (up to 30) ·${data.period} · ${data.full_database ? 'Full research database connected' : 'Bundled county extract; install the full database for tract and block-group searches'}`;
+      $('research-context').textContent = `${data.rows.length} ${data.rows.length === 1 ? 'result' : 'results'} shown (up to 30) · ${data.period} · ${data.full_database ? 'Full research database connected' : 'Bundled county extract; install the full database for tract and block-group searches'}`;
       $('research-results').innerHTML = data.rows.length ? `<table><thead><tr><th>Area</th><th>Population</th><th>Children under 6</th><th>Median household income</th><th>Households without vehicle</th></tr></thead><tbody>${data.rows.map(r => `<tr><td>${esc(r.name)}<span class="sub">${esc(r.geo_id)}</span></td><td>${estimate(r.population_estimate, r.population_moe)}</td><td>${number(r.own_children_under6)}<span class="sub">Own children in families</span></td><td>${estimate(r.median_household_income_2024_dollars, r.income_moe, true)}</td><td>${estimate(r.households_no_vehicle, r.households_no_vehicle_moe)}</td></tr>`).join('')}</tbody></table>` : '<div class="empty"><h3>No matching areas</h3><p>Try a county name. Tract and block-group searches require the full database.</p></div>';
     }
   } catch (e) {

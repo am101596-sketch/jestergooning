@@ -203,15 +203,17 @@ class Research:
         q=' '.join(q.split())[:100]
         if self.path.exists():
             pattern='%'+q.replace('\\','\\\\').replace('%','\\%').replace('_','\\_')+'%'
-            sql='SELECT * FROM area_profile WHERE summary_level=? AND {} LIKE ? ESCAPE ? ORDER BY name LIMIT ?'
+            if q.isascii():
+                # Plain LIKE covers ASCII names, so the slower fold() runs only on accented ones.
+                where="(name LIKE ? ESCAPE '\\' OR (name GLOB '*[^ -~]*' AND fold(name) LIKE ? ESCAPE '\\'))"
+                args=(code,pattern,fold(pattern),limit)
+            else:
+                where="fold(name) LIKE ? ESCAPE '\\'"
+                args=(code,fold(pattern),limit)
             with self.connection() as db:
                 db.row_factory=sqlite3.Row
-                rows=db.execute(sql.format('name'),(code,pattern,'\\',limit)).fetchall()
-                if not rows:
-                    db.create_function('fold',1,fold,deterministic=True)
-                    # An ASCII query already matched every ASCII name above, so only accented names remain.
-                    target="name GLOB '*[^ -~]*' AND fold(name)" if q.isascii() else 'fold(name)'
-                    rows=db.execute(sql.format(target),(code,fold(pattern),'\\',limit)).fetchall()
+                db.create_function('fold',1,fold,deterministic=True)
+                rows=db.execute(f'SELECT * FROM area_profile WHERE summary_level=? AND {where} ORDER BY name LIMIT ?',args).fetchall()
                 result=[dict(r) for r in rows]
             return dict(rows=result, full_database=True, period='2020-2024 ACS five-year estimates')
         needle=fold(q)
