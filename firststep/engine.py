@@ -114,12 +114,16 @@ def evaluate(policy):
 def assess_policy(current, observed_delays):
     if not observed_delays:
         raise ValueError('Record a transport delay on a committed demo plan first.')
-    candidate = dict(current, arrival_buffer_minutes=max(current['arrival_buffer_minutes'], max(observed_delays)),
-                     version=current['version']+1)
-    baseline, proposal = evaluate(current), evaluate(candidate)
-    promoted = (proposal['late'] < baseline['late'] and proposal['on_time'] >= baseline['on_time']
-                and proposal['on_time'] > 0)
+    baseline = evaluate(current)
+    floor = current['arrival_buffer_minutes']
+    buffers = sorted({d for d in observed_delays if d > floor}, reverse=True) or [floor]
+    assessed = [(c, evaluate(c)) for c in (dict(current, arrival_buffer_minutes=b, version=current['version']+1)
+                                           for b in buffers)]
+    passes = lambda p: (p['late'] < baseline['late'] and p['on_time'] >= baseline['on_time'] and p['on_time'] > 0
+                        and p['declined'] <= baseline['declined'])
+    candidate, proposal = next((pair for pair in assessed if passes(pair[1])), assessed[0])
+    promoted = passes(proposal)
     return dict(baseline=baseline, candidate=proposal, proposed_policy=candidate, promoted=promoted,
-                reason='Fewer late arrivals without reducing completed on-time scenarios.' if promoted else
+                reason='Fewer late arrivals, with no loss of on-time starts and no added declines.' if promoted else
                 'No qualifying improvement on the fixed stress suite; current policy retained.',
                 scope='Five synthetic stress scenarios. This is not evidence of real-world employment impact.')
