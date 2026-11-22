@@ -8,8 +8,10 @@ data/*.sqlite
 data/*.sqlite-*
 data/*.zip
 data/model.json
-data/model.json.part
 data/simulation.json
+data/*.part
+*.egg-info/
+build/
 node_modules/
 test-results/
 .DS_Store

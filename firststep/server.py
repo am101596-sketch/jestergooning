@@ -3,13 +3,14 @@ import argparse
 import csv
 import io
 import json
-import mimetypes
 import os
 import sqlite3
 import threading
+import unicodedata
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from functools import cached_property
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -20,6 +21,19 @@ from .predictive import load_model, train, save_model, predict, TRAINING_LOCK
 
 ROOT = Path(__file__).resolve().parents[1]
 STATIC = ROOT / 'static'
+INITIAL_POLICY = dict(version=1, arrival_buffer_minutes=0)
+# Explicit because Python's mimetypes reads the Windows registry, which can map
+# .js to text/plain; with nosniff the browser would then refuse to run the app.
+ASSETS = {
+    '/': ('index.html', 'text/html; charset=utf-8'),
+    '/app.js': ('app.js', 'text/javascript; charset=utf-8'),
+    '/style.css': ('style.css', 'text/css; charset=utf-8'),
+    '/favicon.svg': ('favicon.svg', 'image/svg+xml'),
+}
+
+
+def fold(text):
+    return ''.join(c for c in unicodedata.normalize('NFKD', text) if not unicodedata.combining(c)).casefold()
 
 
 def now():
@@ -37,7 +51,14 @@ class Store:
             CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY, at TEXT, kind TEXT, plan_id TEXT, payload TEXT);
             CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, payload TEXT);
             ''')
-            db.execute("INSERT OR IGNORE INTO settings VALUES ('policy',?)", (json.dumps(dict(version=1, arrival_buffer_minutes=0)),))
+            db.execute("INSERT OR IGNORE INTO settings VALUES ('policy',?)", (json.dumps(INITIAL_POLICY),))
+
+    def reset(self):
+        with self.lock, self.connect() as db:
+            db.execute('DELETE FROM plans')
+            db.execute('DELETE FROM events')
+            db.execute("DELETE FROM settings WHERE key<>'policy'")
+            db.execute("UPDATE settings SET payload=? WHERE key='policy'", (json.dumps(INITIAL_POLICY),))
 
     @contextmanager
     def connect(self):
@@ -178,28 +199,40 @@ class Research:
         if level not in ['county','tract','block_group']:
             raise ValueError('Unknown geographic level.')
         code={'county':'050','tract':'140','block_group':'150'}[level]
+        q=' '.join(q.split())[:100]
         if self.path.exists():
+            pattern='%'+q.replace('\\','\\\\').replace('%','\\%').replace('_','\\_')+'%'
+            sql='SELECT * FROM area_profile WHERE summary_level=? AND {} LIKE ? ESCAPE ? ORDER BY name LIMIT ?'
             with self.connection() as db:
                 db.row_factory=sqlite3.Row
-                rows=db.execute('SELECT * FROM area_profile WHERE summary_level=? AND name LIKE ? ORDER BY name LIMIT ?', (code,'%'+q[:100]+'%',limit)).fetchall()
+                rows=db.execute(sql.format('name'),(code,pattern,'\\',limit)).fetchall()
+                if not rows:
+                    db.create_function('fold',1,fold,deterministic=True)
+                    # An ASCII query already matched every ASCII name above, so only accented names remain.
+                    target="name GLOB '*[^ -~]*' AND fold(name)" if q.isascii() else 'fold(name)'
+                    rows=db.execute(sql.format(target),(code,fold(pattern),'\\',limit)).fetchall()
                 result=[dict(r) for r in rows]
             return dict(rows=result, full_database=True, period='2020-2024 ACS five-year estimates')
+        needle=fold(q)
+        rows=[row for key,row in self.counties if needle in key] if level=='county' else []
+        return dict(rows=rows[:limit],full_database=False,period='2020-2024 ACS five-year estimates')
+
+    @cached_property
+    def counties(self):
+        text=['geo_id','name','summary_level','state_fips','county_fips','tract_code','block_group']
         with (ROOT/'data'/'county_profiles.csv').open(encoding='utf-8-sig',newline='') as f:
-            rows=[]
-            if level=='county':
-                for row in csv.DictReader(f):
-                    if q.lower() in row['name'].lower():
-                        for k,v in row.items():
-                            if k not in ['geo_id','name','summary_level','state_fips','county_fips','tract_code','block_group']:
-                                row[k]=int(v) if v else None
-                        rows.append(row)
-            rows.sort(key=lambda r:r['name'])
-            return dict(rows=rows[:limit],full_database=False,period='2020-2024 ACS five-year estimates')
+            rows=[{k:v if k in text else int(v) if v else None for k,v in row.items()} for row in csv.DictReader(f)]
+        return [(fold(r['name']),r) for r in sorted(rows,key=lambda r:r['name'])]
+
+    @cached_property
+    def licensed_centers(self):
+        with (ROOT/'data'/'ca_childcare_centers.csv').open(encoding='utf-8-sig',newline='') as f:
+            return [(fold(' '.join([r['county_name'],r['facility_city'],r['facility_name']])),r)
+                    for r in csv.DictReader(f) if r['facility_status']=='LICENSED']
 
     def providers(self,q='San Francisco'):
-        with (ROOT/'data'/'ca_childcare_centers.csv').open(encoding='utf-8-sig',newline='') as f:
-            rows=[r for r in csv.DictReader(f) if r['facility_status']=='LICENSED' and
-                  q.lower() in ' '.join([r['county_name'],r['facility_city'],r['facility_name']]).lower()]
+        needle=fold(' '.join(q.split()))
+        rows=[r for key,r in self.licensed_centers if needle in key]
         return dict(rows=rows[:50],matches=len(rows),file_date='2025-05-25',live_availability=False)
 
     def stats(self):
@@ -223,7 +256,7 @@ def make_handler(store,research):
             self.send_header('Content-Length',str(len(body)))
             self.send_header('X-Content-Type-Options','nosniff')
             self.send_header('Cache-Control','no-store')
-            self.send_header('Content-Security-Policy',"default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'")
+            self.send_header('Content-Security-Policy',"default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
             self.end_headers()
             self.wfile.write(body)
 
@@ -249,12 +282,14 @@ def make_handler(store,research):
                 if u.path=='/api/simulator':
                     return self.send(200,dict(defaults=DEFAULT_CONFIG,latest=store.setting('simulation')))
                 if u.path.startswith('/api/plans/'):
-                    return self.send(200,store.get(u.path.split('/')[-1]))
-                assets={'/':'index.html','/app.js':'app.js','/style.css':'style.css','/favicon.svg':'favicon.svg'}
-                if u.path not in assets:
+                    parts=u.path.split('/')
+                    if len(parts)!=4:
+                        return self.send(404,dict(error='Not found.'))
+                    return self.send(200,store.get(parts[3]))
+                if u.path not in ASSETS:
                     return self.send(404,dict(error='Not found.'))
-                p=STATIC/assets[u.path]
-                return self.send(200,p.read_bytes(),mimetypes.guess_type(p.name)[0] or 'application/octet-stream')
+                name,content_type=ASSETS[u.path]
+                return self.send(200,(STATIC/name).read_bytes(),content_type)
             except (ValueError,LookupError) as exc:
                 return self.send(400 if isinstance(exc,ValueError) else 404,dict(error=str(exc)))
             except Exception:
@@ -323,8 +358,14 @@ def make_handler(store,research):
 def main():
     p=argparse.ArgumentParser(description='Run the FirstStep local coordination demo')
     p.add_argument('--port',type=int,default=8080)
+    p.add_argument('--reset-demo',action='store_true',help='Clear saved demo plans, events, and the learned policy before starting')
     args=p.parse_args()
-    server=ThreadingHTTPServer(('127.0.0.1',args.port),make_handler(Store(ROOT/'data'/'state.sqlite'),Research()))
+    if not (STATIC/'index.html').exists():
+        raise SystemExit('FirstStep runs from a source checkout. Install it with: pip install -e .')
+    store=Store(ROOT/'data'/'state.sqlite')
+    if args.reset_demo:
+        store.reset()
+    server=ThreadingHTTPServer(('127.0.0.1',args.port),make_handler(store,Research()))
     print(f'FirstStep: http://127.0.0.1:{args.port}',flush=True)
     print('Local simulation only. No live provider bookings or funding transactions.',flush=True)
     try:
