@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>FirstStep · Coordinate a way forward</title>
+  <meta name="description" content="A research-backed prototype for coordinating childcare, transport, and a first day at work.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <aside class="sidebar">
+    <a class="brand" href="#coordinate"><span class="brand-mark">f<span>·</span></span>firststep<span class="brand-period">.</span></a>
+    <div class="workspace"><span class="workspace-icon">SF</span><div>Community workspace<small>San Francisco · Prototype</small></div></div>
+    <div class="nav-caption">WORKSPACE</div>
+    <nav aria-label="Main navigation">
+      <a href="#coordinate" data-nav="coordinate"><span aria-hidden="true">◇</span> Coordination studio</a>
+      <a href="#research" data-nav="research"><span aria-hidden="true">▦</span> Research atlas</a>
+      <a href="#learning" data-nav="learning"><span aria-hidden="true">↻</span> Learning lab</a>
+      <a href="#sources" data-nav="sources"><span aria-hidden="true">▤</span> Sources & boundaries</a>
+    </nav>
+    <div class="sidebar-bottom"><div class="mode-label">SIMULATION WORKSPACE</div><p>Real research.<br>Clearly marked demo arrangements.</p><span class="local-label">Runs on your device</span></div>
+  </aside>
+  <div class="shell">
+    <header class="topbar"><div><span class="breadcrumb">Workspace</span><span class="slash">/</span><span id="page-label">Coordination studio</span></div><span class="badge purple">Prototype · No live bookings</span></header>
+    <main id="main" tabindex="-1">
+      <div id="notice" role="status" aria-live="polite" hidden></div>
+      <section id="coordinate" class="screen">
+        <div class="eyebrow">MAKE THE FIRST DAY POSSIBLE</div>
+        <div class="page-heading"><div><h1>A way forward,<br><span>worked out together.</span></h1><p class="intro">Bring childcare, transport, and bridge funding into one feasible plan.</p></div><div class="edition">FIRSTSTEP / 01<small>Coordination studio</small></div></div>
+        <div class="metrics"><article><span class="metric-icon lilac">◇</span><div><strong id="offer-count">6</strong><span>Demo combinations checked</span></div></article><article><span class="metric-icon mint">▦</span><div><strong id="geo-count">—</strong><span>Geographic areas in research</span></div></article><article><span class="metric-icon peach">↻</span><div><strong id="buffer-stat">0 min</strong><span>Current arrival safety buffer</span></div></article></div>
+        <div class="studio-grid">
+          <div>
+            <article class="panel case-panel"><div class="panel-title"><div><span class="eyebrow">START WITH A PERSON</span><h2>The next first day</h2></div><span class="badge">Synthetic applicant</span></div>
+              <form id="case-form">
+                <div class="form-grid"><label>Demo name<input name="name" value="Maya Chen" maxlength="100" required autocomplete="off"></label><label>Child’s age<input name="child_age" type="number" min="0" max="17" value="3" required></label><label>Shift starts<input name="shift_start" type="time" value="09:00" required></label><label>Shift ends<input name="shift_end" type="time" value="17:00" required></label><label>Weekly budget ($)<input name="weekly_budget" type="number" min="0" max="10000" value="350" step="1" required></label><label>Bridge budget for deposit ($)<input name="bridge_budget" type="number" min="0" max="10000" value="250" step="1" required></label></div>
+                <div class="form-footer"><span>Demo offers in San Francisco</span><button class="button primary" type="submit" id="plan-button">Find a coordinated plan</button></div>
+              </form>
+            </article>
+            <article class="panel plan-panel"><div class="panel-title"><div><span class="eyebrow">EVERY PIECE HAS TO FIT</span><h2>The coordinated arrangement</h2></div><span id="plan-badge" class="badge">Not started</span></div><div id="plan-content"><div class="empty"><span class="empty-symbol">◇</span><h3>Start with the whole picture.</h3><p>The planner checks age, drop-off, arrival, pickup, weekly cost, and deposit funding together.</p></div></div></article>
+          </div>
+          <aside class="right-column"><article class="panel activity-panel"><span class="eyebrow">A VISIBLE CHAIN OF ACTIONS</span><h2>Coordination trail</h2><div id="steps"><p class="muted">Your plan’s checks and confirmations will appear here.</p></div><div class="inset-note">All offers and commitments in this studio are simulated. No provider is contacted and no money moves.</div></article><article class="learning-callout"><span class="eyebrow">BUILT TO LEARN</span><h3>A missed connection can improve the next plan.</h3><p>Record a demo transport delay, then test a larger arrival buffer in the Learning lab.</p><a href="#learning" class="text-link">Explore the learning loop</a></article></aside>
+        </div>
+      </section>
+      <section id="research" class="screen" hidden>
+        <div class="eyebrow">START WITH EVIDENCE</div><h1>Research atlas<span>.</span></h1><p class="intro">Explore public statistics and historical provider records. These are research inputs, not eligibility decisions or available childcare places.</p>
+        <div class="research-toolbar panel"><label class="search-label">Search places or providers<input id="research-search" type="search" placeholder="Try San Francisco or Alameda" value="San Francisco"></label><label>Dataset<select id="research-kind"><option value="county">County profiles</option><option value="tract">Census tracts</option><option value="block_group">Block groups</option><option value="providers">California childcare centers</option></select></label><button id="research-button" class="button primary">Search records</button></div>
+        <div id="research-context" class="context-line"></div><article class="panel table-panel"><div id="research-results" aria-live="polite"></div></article>
+        <div class="research-footnotes"><p><strong>Read the uncertainty.</strong> ± values are published 90% margins of error. Negative Census sentinel values appear as “Unavailable.” Different geographic levels overlap.</p><p><strong>Read the dates.</strong> ACS: 2020–2024 period estimates. Provider files: May 25, 2025. Licensed capacity does not mean vacancies. Vehicle-access fields are unavailable for block groups in this release.</p></div>
+      </section>
+      <section id="learning" class="screen" hidden>
+        <div class="eyebrow">OBSERVE · PROPOSE · TEST · ADOPT</div><h1>Improve the next step<span>.</span></h1><p class="intro">A bounded learning loop changes scheduling policy only after an observed failure and a passing stress test.</p>
+        <div class="learning-layout"><article class="panel"><div class="panel-title"><div><span class="eyebrow">CURRENT POLICY</span><h2>Arrive with room to spare</h2></div><span id="policy-version" class="badge purple">Version 1</span></div><div class="policy-number"><strong id="policy-buffer">0</strong><span>minutes of required arrival buffer</span></div><p id="learning-evidence" class="muted"></p><button id="learn-button" class="button primary">Evaluate a policy improvement</button><p class="small muted">Requires a transport-delay outcome on a confirmed demo plan.</p></article><article class="learning-callout"><span class="eyebrow">THE ADOPTION RULE</span><h3>Fewer late arrivals.<br>No loss of on-time completions.</h3><p>Five fixed synthetic scenarios compare the current policy with a candidate. Safe declines are reported separately. The agent cannot change the tests or provider rules.</p></article></div>
+        <article id="learning-results" class="panel" hidden></article><article class="panel events-panel"><div class="panel-title"><h2>Audit trail</h2><button class="button secondary" id="refresh-events">Refresh</button></div><div id="event-list"></div></article>
+      </section>
+      <section id="sources" class="screen" hidden>
+        <div class="eyebrow">KNOW WHAT YOU’RE LOOKING AT</div><h1>Evidence, with boundaries<span>.</span></h1><p class="intro">FirstStep pairs a real research database with an explicitly simulated coordination workflow.</p>
+        <div class="source-grid"><article class="panel"><span class="source-tag">REAL PUBLIC DATA</span><h2>American Community Survey</h2><p>2020–2024 five-year estimates. Population, income, employment, parental employment, and vehicle availability. Includes estimates and margins of error.</p><a href="https://www.census.gov/programs-surveys/acs/data/summary-file.2024.html" target="_blank" rel="noreferrer">Census source & methodology</a></article><article class="panel"><span class="source-tag">REAL PUBLIC DATA</span><h2>Childcare prices</h2><p>48,308 historical county-year records, 2008–2022, in the full research database. Coverage and estimation methods vary. Price exploration is available through SQL.</p><a href="https://www.dol.gov/agencies/wb/topics/featured-childcare" target="_blank" rel="noreferrer">Department of Labor source</a></article><article class="panel"><span class="source-tag">HISTORICAL DIRECTORY</span><h2>California licensing</h2><p>The explorer contains center records from a May 25, 2025 source file. “Licensed” reflects that source’s status, not a current verification or a vacant place.</p><a href="https://publish.data.ca.gov/dataset/community-care-licensing-facilities" target="_blank" rel="noreferrer">CDSS source · CC Attribution</a></article><article class="panel"><span class="source-tag simulated">SYNTHETIC WORKFLOW</span><h2>Coordination & learning</h2><p>Applicant details, provider offers, bridge budgets, transport schedules, outcomes, and stress scenarios are demo fixtures. They are separate from the research directory.</p><p>Live use needs verified partners, consent, current capacity, booking authority, privacy controls, and an evaluated service model.</p></article></div>
+        <article class="panel boundaries"><h2>What the research does—and doesn’t—establish</h2><p>Childcare is a documented employment barrier. These data do not establish how often circular commitments prevent job starts, prove this product’s impact, or determine eligibility. Some local childcare programs support parents who are seeking work.</p><a href="https://www.sfusd.edu/sfusds-early-education-department-handbook/section-20-enrollment-costs-fees/22-sfusds-early-education-application" target="_blank" rel="noreferrer">Read SFUSD’s enrollment criteria</a></article>
+      </section>
+      <footer class="page-footer"><span>FirstStep <b>·</b> Coordinate a way forward.</span><span>Research-backed prototype. Impact remains to be evaluated.</span></footer>
+    </main>
+  </div>
+</body></html>

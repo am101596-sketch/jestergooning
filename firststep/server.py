@@ -1,0 +1,286 @@
+"""Dependency-free local server. All coordination side effects are simulated."""
+import argparse
+import csv
+import io
+import json
+import mimetypes
+import os
+import sqlite3
+import threading
+import uuid
+from contextlib import contextmanager
+from datetime import datetime, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import parse_qs, urlparse
+
+from .engine import CARES, RIDES, DEFAULT_CASE, solve, assess_policy
+
+ROOT = Path(__file__).resolve().parents[1]
+STATIC = ROOT / 'static'
+
+
+def now():
+    return datetime.now(timezone.utc).isoformat()
+
+
+class Store:
+    def __init__(self, path):
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.lock = threading.RLock()
+        with self.connect() as db:
+            db.executescript('''
+            CREATE TABLE IF NOT EXISTS plans(id TEXT PRIMARY KEY, payload TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY, at TEXT, kind TEXT, plan_id TEXT, payload TEXT);
+            CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, payload TEXT);
+            ''')
+            db.execute("INSERT OR IGNORE INTO settings VALUES ('policy',?)", (json.dumps(dict(version=1, arrival_buffer_minutes=0)),))
+
+    @contextmanager
+    def connect(self):
+        db=sqlite3.connect(self.path, timeout=20)
+        try:
+            with db:
+                yield db
+        finally:
+            db.close()
+
+    def event(self, db, kind, plan_id, payload):
+        db.execute('INSERT INTO events(at,kind,plan_id,payload) VALUES (?,?,?,?)', (now(),kind,plan_id,json.dumps(payload)))
+
+    def policy(self):
+        with self.connect() as db:
+            return json.loads(db.execute("SELECT payload FROM settings WHERE key='policy'").fetchone()[0])
+
+    def save(self, db, plan):
+        db.execute('INSERT OR REPLACE INTO plans VALUES (?,?)', (plan['id'], json.dumps(plan)))
+
+    def get(self, plan_id):
+        with self.connect() as db:
+            row = db.execute('SELECT payload FROM plans WHERE id=?', (plan_id,)).fetchone()
+        if not row:
+            raise LookupError('Plan not found.')
+        return json.loads(row[0])
+
+    def prepare(self, case, excluded=None, parent_id=None):
+        with self.lock:
+            plan = solve(case, self.policy(), excluded)
+            plan.update(id=uuid.uuid4().hex, created_at=now(), status='prepared' if plan['feasible'] else 'blocked', parent_id=parent_id)
+            plan['steps'] = [
+                dict(label='Check job schedule and applicant constraints', state='verified'),
+                dict(label='Find compatible childcare and transport offers', state='verified' if plan['feasible'] else 'blocked'),
+                dict(label='Check deposit against demo bridge budget', state='verified' if plan['feasible'] else 'blocked'),
+                dict(label='Request applicant consent', state='pending' if plan['feasible'] else 'blocked'),
+                dict(label='Confirm the simulated arrangement', state='pending' if plan['feasible'] else 'blocked'),
+            ]
+            with self.connect() as db:
+                self.save(db, plan)
+                self.event(db, 'plan_prepared', plan['id'], dict(feasible=plan['feasible'],parent_id=parent_id))
+            return plan
+
+    def confirm(self, plan_id, consent):
+        if consent is not True:
+            raise ValueError('Explicit consent is required for simulated confirmation.')
+        with self.lock:
+            plan = self.get(plan_id)
+            if plan['status'] == 'committed':
+                return plan
+            if plan['status'] != 'prepared':
+                raise ValueError('Only a prepared, feasible plan can be confirmed.')
+            plan['status'] = 'committed'
+            for s in plan['steps']:
+                s['state'] = 'verified'
+            with self.connect() as db:
+                self.save(db, plan)
+                self.event(db, 'simulation_committed', plan_id, dict(consent=True, real_world_actions=False))
+            return plan
+
+    def outcome(self, plan_id, kind, delay=15):
+        if kind not in ['transport_delay','provider_withdrawal','on_time']:
+            raise ValueError('Unknown outcome.')
+        if type(delay) is not int or not 1 <= delay <= 60:
+            raise ValueError('Delay must be a whole number from 1 to 60 minutes.')
+        with self.lock:
+            plan = self.get(plan_id)
+            if plan['status'] != 'committed':
+                raise ValueError('Record outcomes only after simulated confirmation.')
+            plan['status'] = 'completed' if kind=='on_time' else 'failed'
+            plan['outcome'] = kind
+            with self.connect() as db:
+                self.save(db,plan)
+                self.event(db, kind, plan_id, dict(delay_minutes=delay) if kind=='transport_delay' else {})
+            if kind=='provider_withdrawal':
+                excluded = plan['excluded'] + [plan['selected']['care']['id']]
+                return dict(plan=plan, replacement=self.prepare(plan['case'], excluded, plan_id))
+            return dict(plan=plan)
+
+    def learning(self, run=False):
+        with self.lock:
+            policy = self.policy()
+            with self.connect() as db:
+                delays = [json.loads(r[0])['delay_minutes'] for r in db.execute("SELECT payload FROM events WHERE kind='transport_delay'")]
+                if not run:
+                    latest=db.execute("SELECT payload FROM events WHERE kind='policy_evaluated' ORDER BY id DESC LIMIT 1").fetchone()
+                    return dict(policy=policy, observed_delays=delays, latest=json.loads(latest[0]) if latest else None)
+                result=assess_policy(policy,delays)
+                if result['promoted']:
+                    db.execute("UPDATE settings SET payload=? WHERE key='policy'",(json.dumps(result['proposed_policy']),))
+                self.event(db,'policy_evaluated',None,result)
+                return dict(policy=result['proposed_policy'] if result['promoted'] else policy, result=result)
+
+    def events(self):
+        with self.connect() as db:
+            return [dict(id=r[0],at=r[1],kind=r[2],plan_id=r[3],payload=json.loads(r[4])) for r in
+                    db.execute('SELECT id,at,kind,plan_id,payload FROM events ORDER BY id DESC LIMIT 50')]
+
+
+class Research:
+    def __init__(self, path=None):
+        self.path = Path(path or os.environ.get('FIRSTSTEP_RESEARCH_DB', ROOT/'data'/'research.sqlite'))
+        # The surrounding workspace already contains the full research database.
+        if not self.path.exists() and not path and not os.environ.get('FIRSTSTEP_RESEARCH_DB'):
+            sibling=ROOT.parent/'firststep_research.sqlite'
+            if sibling.exists():
+                self.path=sibling
+
+    @contextmanager
+    def connection(self):
+        db=sqlite3.connect(self.path.resolve().as_uri()+'?mode=ro', uri=True)
+        try:
+            yield db
+        finally:
+            db.close()
+
+    def areas(self, q='', level='county', limit=30):
+        if level not in ['county','tract','block_group']:
+            raise ValueError('Unknown geographic level.')
+        code={'county':'050','tract':'140','block_group':'150'}[level]
+        if self.path.exists():
+            with self.connection() as db:
+                db.row_factory=sqlite3.Row
+                rows=db.execute('SELECT * FROM area_profile WHERE summary_level=? AND name LIKE ? ORDER BY name LIMIT ?', (code,'%'+q[:100]+'%',limit)).fetchall()
+                result=[dict(r) for r in rows]
+            return dict(rows=result, full_database=True, period='2020-2024 ACS five-year estimates')
+        with (ROOT/'data'/'county_profiles.csv').open(encoding='utf-8-sig',newline='') as f:
+            rows=[]
+            if level=='county':
+                for row in csv.DictReader(f):
+                    if q.lower() in row['name'].lower():
+                        for k,v in row.items():
+                            if k not in ['geo_id','name','summary_level','state_fips','county_fips','tract_code','block_group']:
+                                row[k]=int(v) if v else None
+                        rows.append(row)
+            rows.sort(key=lambda r:r['name'])
+            return dict(rows=rows[:limit],full_database=False,period='2020-2024 ACS five-year estimates')
+
+    def providers(self,q='San Francisco'):
+        with (ROOT/'data'/'ca_childcare_centers.csv').open(encoding='utf-8-sig',newline='') as f:
+            rows=[r for r in csv.DictReader(f) if r['facility_status']=='LICENSED' and
+                  q.lower() in ' '.join([r['county_name'],r['facility_city'],r['facility_name']]).lower()]
+        return dict(rows=rows[:50],matches=len(rows),file_date='2025-05-25',live_availability=False)
+
+    def stats(self):
+        m=json.loads((ROOT/'data'/'manifest.json').read_text())
+        return dict(total_source_rows=m['total_source_data_rows'],geographies=m['counts']['geography'],
+                    county_records=3222,provider_records=m['counts']['ca_childcare_centers'],
+                    full_database=self.path.exists(),period=m['acs_period'])
+
+
+def make_handler(store,research):
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self,fmt,*args):
+            # Do not log query strings or applicant payloads.
+            pass
+
+        def send(self,status,data,content_type='application/json; charset=utf-8'):
+            body=json.dumps(data).encode() if not isinstance(data,bytes) else data
+            self.send_response(status)
+            self.send_header('Content-Type',content_type)
+            self.send_header('Content-Length',str(len(body)))
+            self.send_header('X-Content-Type-Options','nosniff')
+            self.send_header('Cache-Control','no-store')
+            self.send_header('Content-Security-Policy',"default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self):
+            try:
+                if self.headers.get('Host') not in [f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}']:
+                    return self.send(403,dict(error='Only loopback hostnames are accepted.'))
+                u=urlparse(self.path)
+                query=parse_qs(u.query)
+                if u.path=='/api/bootstrap':
+                    return self.send(200,dict(default_case=DEFAULT_CASE,cares=CARES,rides=RIDES,
+                                              stats=research.stats(),learning=store.learning(),events=store.events()))
+                if u.path=='/api/research/areas':
+                    return self.send(200,research.areas(query.get('q',[''])[0],query.get('level',['county'])[0]))
+                if u.path=='/api/research/providers':
+                    return self.send(200,research.providers(query.get('q',['San Francisco'])[0]))
+                if u.path=='/api/learning':
+                    return self.send(200,store.learning())
+                if u.path=='/api/events':
+                    return self.send(200,store.events())
+                if u.path.startswith('/api/plans/'):
+                    return self.send(200,store.get(u.path.split('/')[-1]))
+                assets={'/':'index.html','/app.js':'app.js','/style.css':'style.css','/favicon.svg':'favicon.svg'}
+                if u.path not in assets:
+                    return self.send(404,dict(error='Not found.'))
+                p=STATIC/assets[u.path]
+                return self.send(200,p.read_bytes(),mimetypes.guess_type(p.name)[0] or 'application/octet-stream')
+            except (ValueError,LookupError) as exc:
+                return self.send(400 if isinstance(exc,ValueError) else 404,dict(error=str(exc)))
+            except Exception:
+                return self.send(500,dict(error='The request could not be completed. Check local data files.'))
+
+        def do_POST(self):
+            try:
+                if self.headers.get('Host') not in [f'127.0.0.1:{self.server.server_port}',f'localhost:{self.server.server_port}']:
+                    return self.send(403,dict(error='Only loopback hostnames are accepted.'))
+                origin=self.headers.get('Origin')
+                if origin and origin not in ['http://'+self.headers.get('Host','')]:
+                    return self.send(403,dict(error='Cross-origin changes are not allowed.'))
+                if self.headers.get('Content-Type','').split(';')[0]!='application/json':
+                    return self.send(415,dict(error='Use application/json.'))
+                n=int(self.headers.get('Content-Length','0'))
+                if not 0<n<=65536:
+                    return self.send(413,dict(error='Request body must be between 1 and 65536 bytes.'))
+                body=json.loads(self.rfile.read(n))
+                if not isinstance(body,dict):
+                    raise ValueError('Request body must be an object.')
+                path=urlparse(self.path).path
+                if path=='/api/plans':
+                    return self.send(201,store.prepare(body))
+                if path=='/api/learning/run':
+                    return self.send(200,store.learning(run=True))
+                parts=path.strip('/').split('/')
+                if len(parts)==4 and parts[:2]==['api','plans']:
+                    if parts[3]=='confirm':
+                        return self.send(200,store.confirm(parts[2],body.get('consent')))
+                    if parts[3]=='outcome':
+                        return self.send(200,store.outcome(parts[2],body.get('kind'),body.get('delay_minutes',15)))
+                return self.send(404,dict(error='Not found.'))
+            except (ValueError,LookupError) as exc:
+                return self.send(400 if isinstance(exc,ValueError) else 404,dict(error=str(exc)))
+            except Exception:
+                return self.send(500,dict(error='The change could not be completed.'))
+    return Handler
+
+
+def main():
+    p=argparse.ArgumentParser(description='Run the FirstStep local coordination demo')
+    p.add_argument('--port',type=int,default=8080)
+    args=p.parse_args()
+    server=ThreadingHTTPServer(('127.0.0.1',args.port),make_handler(Store(ROOT/'data'/'state.sqlite'),Research()))
+    print(f'FirstStep: http://127.0.0.1:{args.port}',flush=True)
+    print('Local simulation only. No live provider bookings or funding transactions.',flush=True)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+
+
+if __name__=='__main__':
+    main()
